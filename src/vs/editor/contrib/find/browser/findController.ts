@@ -17,6 +17,7 @@ import { EditorContextKeys } from '../../../common/editorContextKeys.js';
 import { OverviewRulerLane } from '../../../common/model.js';
 import { CONTEXT_FIND_INPUT_FOCUSED, CONTEXT_FIND_WIDGET_VISIBLE, CONTEXT_REPLACE_INPUT_FOCUSED, FindModelBoundToEditorModel, FIND_IDS, ToggleCaseSensitiveKeybinding, TogglePreserveCaseKeybinding, ToggleRegexKeybinding, ToggleSearchScopeKeybinding, ToggleWholeWordKeybinding } from './findModel.js';
 import { FindOptionsWidget } from './findOptionsWidget.js';
+import { FindReplaceWidgetDiagnostics } from './findReplaceWidgetDiagnostics.js';
 import { FindReplaceState, FindReplaceStateChangedEvent, INewFindReplaceState } from './findState.js';
 import { FindWidget, IFindController } from './findWidget.js';
 import * as nls from '../../../../nls.js';
@@ -26,6 +27,7 @@ import { ContextKeyExpr, IContextKey, IContextKeyService } from '../../../../pla
 import { IContextViewService } from '../../../../platform/contextview/browser/contextView.js';
 import { IKeybindingService } from '../../../../platform/keybinding/common/keybinding.js';
 import { KeybindingWeight } from '../../../../platform/keybinding/common/keybindingsRegistry.js';
+import { ILogService } from '../../../../platform/log/common/log.js';
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { IQuickInputService } from '../../../../platform/quickinput/common/quickInput.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
@@ -446,6 +448,7 @@ export class FindController extends CommonFindController implements IFindControl
 	private _findOptionsWidget: FindOptionsWidget | null;
 	private _findWidgetSearchHistory: FindWidgetSearchHistory;
 	private _replaceWidgetHistory: ReplaceWidgetHistory;
+	private readonly _diagnostics: FindReplaceWidgetDiagnostics;
 
 	constructor(
 		editor: ICodeEditor,
@@ -456,12 +459,54 @@ export class FindController extends CommonFindController implements IFindControl
 		@IStorageService _storageService: IStorageService,
 		@IClipboardService clipboardService: IClipboardService,
 		@IHoverService hoverService: IHoverService,
+		@ILogService logService: ILogService,
 	) {
 		super(editor, _contextKeyService, _storageService, clipboardService, notificationService, hoverService);
 		this._widget = null;
 		this._findOptionsWidget = null;
 		this._findWidgetSearchHistory = FindWidgetSearchHistory.getOrCreate(_storageService);
 		this._replaceWidgetHistory = ReplaceWidgetHistory.getOrCreate(_storageService);
+		this._diagnostics = this._register(new FindReplaceWidgetDiagnostics('editor', logService));
+	}
+
+	public override moveToNextMatch(): boolean {
+		const result = super.moveToNextMatch();
+		if (result) {
+			this._diagnostics.recordAction('find');
+		}
+		return result;
+	}
+
+	public override moveToPrevMatch(): boolean {
+		const result = super.moveToPrevMatch();
+		if (result) {
+			this._diagnostics.recordAction('find');
+		}
+		return result;
+	}
+
+	public override goToMatch(index: number): boolean {
+		const result = super.goToMatch(index);
+		if (result) {
+			this._diagnostics.recordAction('find');
+		}
+		return result;
+	}
+
+	public override replace(): boolean {
+		const result = super.replace();
+		if (result) {
+			this._diagnostics.recordAction('replaceOne');
+		}
+		return result;
+	}
+
+	public override replaceAll(): boolean {
+		const result = super.replaceAll();
+		if (result) {
+			this._diagnostics.recordAction('replaceAll');
+		}
+		return result;
 	}
 
 	protected override async _start(opts: IFindStartOptions, newState?: INewFindReplaceState): Promise<void> {
@@ -513,7 +558,7 @@ export class FindController extends CommonFindController implements IFindControl
 	}
 
 	private _createFindWidget() {
-		this._widget = this._register(new FindWidget(this._editor, this, this._state, this._contextViewService, this._keybindingService, this._contextKeyService, this._hoverService, this._findWidgetSearchHistory, this._replaceWidgetHistory));
+		this._widget = this._register(new FindWidget(this._editor, this, this._state, this._contextViewService, this._keybindingService, this._contextKeyService, this._hoverService, this._findWidgetSearchHistory, this._replaceWidgetHistory, this._diagnostics));
 		this._findOptionsWidget = this._register(new FindOptionsWidget(this._editor, this._state, this._keybindingService));
 	}
 
