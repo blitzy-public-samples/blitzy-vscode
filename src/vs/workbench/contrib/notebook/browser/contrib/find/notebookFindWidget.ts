@@ -13,6 +13,7 @@ import * as strings from '../../../../../../base/common/strings.js';
 import { Range } from '../../../../../../editor/common/core/range.js';
 import { FindMatch } from '../../../../../../editor/common/model.js';
 import { MATCHES_LIMIT } from '../../../../../../editor/contrib/find/browser/findModel.js';
+import { FindReplaceWidgetDiagnostics } from '../../../../../../editor/contrib/find/browser/findReplaceWidgetDiagnostics.js';
 import { FindReplaceState } from '../../../../../../editor/contrib/find/browser/findState.js';
 import { NLS_MATCHES_LOCATION, NLS_NO_RESULTS } from '../../../../../../editor/contrib/find/browser/findWidget.js';
 import { FindWidgetSearchHistory } from '../../../../../../editor/contrib/find/browser/findWidgetSearchHistory.js';
@@ -23,6 +24,7 @@ import { IContextKey, IContextKeyService } from '../../../../../../platform/cont
 import { IContextMenuService, IContextViewService } from '../../../../../../platform/contextview/browser/contextView.js';
 import { IHoverService } from '../../../../../../platform/hover/browser/hover.js';
 import { IInstantiationService } from '../../../../../../platform/instantiation/common/instantiation.js';
+import { ILogService } from '../../../../../../platform/log/common/log.js';
 import { IStorageService } from '../../../../../../platform/storage/common/storage.js';
 import { NotebookFindFilters } from './findFilters.js';
 import { FindModel } from './findModel.js';
@@ -111,11 +113,13 @@ class NotebookFindWidget extends SimpleFindReplaceWidget implements INotebookEdi
 		@IHoverService hoverService: IHoverService,
 		@IInstantiationService instantiationService: IInstantiationService,
 		@IStorageService storageService: IStorageService,
+		@ILogService logService: ILogService,
 	) {
 		const findSearchHistory = FindWidgetSearchHistory.getOrCreate(storageService);
 		const replaceHistory = ReplaceWidgetHistory.getOrCreate(storageService);
+		const diagnostics = new FindReplaceWidgetDiagnostics('notebook', logService);
 
-		super(contextViewService, contextKeyService, configurationService, contextMenuService, instantiationService, hoverService, new FindReplaceState<NotebookFindFilters>(), _notebookEditor, findSearchHistory, replaceHistory);
+		super(contextViewService, contextKeyService, configurationService, contextMenuService, instantiationService, hoverService, new FindReplaceState<NotebookFindFilters>(), _notebookEditor, findSearchHistory, replaceHistory, diagnostics);
 		this._findModel = new FindModel(this._notebookEditor, this._state, this._configurationService);
 
 		DOM.append(this._notebookEditor.getDomNode(), this.getDomNode());

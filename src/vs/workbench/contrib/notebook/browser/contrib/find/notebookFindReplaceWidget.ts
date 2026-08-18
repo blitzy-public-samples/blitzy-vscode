@@ -12,7 +12,6 @@ import { AnchorAlignment, IContextViewProvider } from '../../../../../../base/br
 import { DropdownMenuActionViewItem } from '../../../../../../base/browser/ui/dropdown/dropdownActionViewItem.js';
 import { FindInput, IFindInputOptions } from '../../../../../../base/browser/ui/findinput/findInput.js';
 import { ReplaceInput } from '../../../../../../base/browser/ui/findinput/replaceInput.js';
-import { IMessage as InputBoxMessage } from '../../../../../../base/browser/ui/inputbox/inputBox.js';
 import { ProgressBar } from '../../../../../../base/browser/ui/progressbar/progressbar.js';
 import { ISashEvent, Orientation, Sash } from '../../../../../../base/browser/ui/sash/sash.js';
 import { IToggleStyles, Toggle } from '../../../../../../base/browser/ui/toggle/toggle.js';
@@ -27,6 +26,8 @@ import { isSafari } from '../../../../../../base/common/platform.js';
 import { IHistory } from '../../../../../../base/common/history.js';
 import { ThemeIcon } from '../../../../../../base/common/themables.js';
 import { Range } from '../../../../../../editor/common/core/range.js';
+import type { FindReplaceWidgetDiagnostics } from '../../../../../../editor/contrib/find/browser/findReplaceWidgetDiagnostics.js';
+import { FIND_REPLACE_WIDGET_INITIAL_WIDTH, updateFindReplaceControlState, validateFindRegex } from '../../../../../../editor/contrib/find/browser/findReplaceWidgetUtils.js';
 import { FindReplaceState, FindReplaceStateChangedEvent } from '../../../../../../editor/contrib/find/browser/findState.js';
 import { findNextMatchIcon, findPreviousMatchIcon, findReplaceAllIcon, findReplaceIcon, findSelectionIcon, SimpleButton } from '../../../../../../editor/contrib/find/browser/findWidget.js';
 import { parseReplaceString, ReplacePattern } from '../../../../../../editor/contrib/find/browser/replacePattern.js';
@@ -40,7 +41,6 @@ import { ContextScopedReplaceInput, registerAndCreateHistoryNavigationContext } 
 import { IHoverService } from '../../../../../../platform/hover/browser/hover.js';
 import { IInstantiationService } from '../../../../../../platform/instantiation/common/instantiation.js';
 import { defaultInputBoxStyles, defaultProgressBarStyles, defaultToggleStyles } from '../../../../../../platform/theme/browser/defaultStyles.js';
-import { asCssVariable, inputActiveOptionBackground, inputActiveOptionBorder, inputActiveOptionForeground } from '../../../../../../platform/theme/common/colorRegistry.js';
 import { registerIcon, widgetClose } from '../../../../../../platform/theme/common/iconRegistry.js';
 import { registerThemingParticipant } from '../../../../../../platform/theme/common/themeService.js';
 import { filterIcon } from '../../../../extensions/browser/extensionsIcons.js';
@@ -71,7 +71,6 @@ const NOTEBOOK_FIND_IN_MARKUP_PREVIEW = nls.localize('notebook.find.filter.findI
 const NOTEBOOK_FIND_IN_CODE_INPUT = nls.localize('notebook.find.filter.findInCodeInput', "Code Cell Source");
 const NOTEBOOK_FIND_IN_CODE_OUTPUT = nls.localize('notebook.find.filter.findInCodeOutput', "Code Cell Output");
 
-const NOTEBOOK_FIND_WIDGET_INITIAL_WIDTH = 419;
 const NOTEBOOK_FIND_WIDGET_INITIAL_HORIZONTAL_PADDING = 4;
 class NotebookFindFilterActionViewItem extends DropdownMenuActionViewItem {
 	constructor(readonly filters: NotebookFindFilters, action: IAction, options: IActionViewItemOptions, actionRunner: IActionRunner, @IContextMenuService contextMenuService: IContextMenuService) {
@@ -307,7 +306,7 @@ export abstract class SimpleFindReplaceWidget extends Widget {
 	protected _replaceAllBtn!: SimpleButton;
 
 	private readonly _resizeSash: Sash;
-	private _resizeOriginalWidth = NOTEBOOK_FIND_WIDGET_INITIAL_WIDTH;
+	private _resizeOriginalWidth = FIND_REPLACE_WIDGET_INITIAL_WIDTH;
 
 	private _isVisible: boolean = false;
 	private _isReplaceVisible: boolean = false;
@@ -333,10 +332,12 @@ export abstract class SimpleFindReplaceWidget extends Widget {
 		protected readonly _notebookEditor: INotebookEditor,
 		private readonly _findWidgetSearchHistory: IHistory<string> | undefined,
 		private readonly _replaceWidgetHistory: IHistory<string> | undefined,
+		protected readonly _diagnostics: FindReplaceWidgetDiagnostics,
 	) {
 		super();
 
 		this._register(this._state);
+		this._register(this._diagnostics);
 
 		const findFilters = this._configurationService.getValue<{
 			markupSource: boolean;
@@ -411,18 +412,13 @@ export abstract class SimpleFindReplaceWidget extends Widget {
 				// width:FIND_INPUT_AREA_WIDTH,
 				label: NLS_FIND_INPUT_LABEL,
 				placeholder: NLS_FIND_INPUT_PLACEHOLDER,
-				validation: (value: string): InputBoxMessage | null => {
-					if (value.length === 0 || !this._findInput.getRegex()) {
-						return null;
-					}
-					try {
-						new RegExp(value);
-						return null;
-					} catch (e) {
+				validation: (value: string) => {
+					const message = validateFindRegex(value, this._findInput.getRegex());
+					if (message) {
 						this.foundMatch = false;
 						this.updateButtons(this.foundMatch);
-						return { content: e.message };
 					}
+					return message;
 				},
 				flexibleWidth: true,
 				showCommonFindToggles: true,
@@ -491,9 +487,7 @@ export abstract class SimpleFindReplaceWidget extends Widget {
 			title: NLS_TOGGLE_SELECTION_FIND_TITLE,
 			isChecked: false,
 			hoverLifecycleOptions,
-			inputActiveOptionBackground: asCssVariable(inputActiveOptionBackground),
-			inputActiveOptionBorder: asCssVariable(inputActiveOptionBorder),
-			inputActiveOptionForeground: asCssVariable(inputActiveOptionForeground),
+			...defaultToggleStyles,
 		}));
 		this.inSelectionToggle.domNode.style.display = 'inline';
 
@@ -641,8 +635,8 @@ export abstract class SimpleFindReplaceWidget extends Widget {
 
 		this._register(this._resizeSash.onDidChange((evt: ISashEvent) => {
 			let width = this._resizeOriginalWidth + evt.startX - evt.currentX;
-			if (width < NOTEBOOK_FIND_WIDGET_INITIAL_WIDTH) {
-				width = NOTEBOOK_FIND_WIDGET_INITIAL_WIDTH;
+			if (width < FIND_REPLACE_WIDGET_INITIAL_WIDTH) {
+				width = FIND_REPLACE_WIDGET_INITIAL_WIDTH;
 			}
 
 			const maxWidth = this._getMaxWidth();
@@ -663,9 +657,9 @@ export abstract class SimpleFindReplaceWidget extends Widget {
 			// users double click on the sash
 			// try to emulate what happens with editor findWidget
 			const currentWidth = this._getDomWidth();
-			let width = NOTEBOOK_FIND_WIDGET_INITIAL_WIDTH;
+			let width = FIND_REPLACE_WIDGET_INITIAL_WIDTH;
 
-			if (currentWidth <= NOTEBOOK_FIND_WIDGET_INITIAL_WIDTH) {
+			if (currentWidth <= FIND_REPLACE_WIDGET_INITIAL_WIDTH) {
 				width = this._getMaxWidth();
 			}
 
@@ -676,6 +670,8 @@ export abstract class SimpleFindReplaceWidget extends Widget {
 
 			this._findInput.inputBox.layout();
 		}));
+
+		this._diagnostics.updateSnapshot({ controlsReady: true, stateWired: true });
 	}
 
 	private _getMaxWidth() {
@@ -727,17 +723,21 @@ export abstract class SimpleFindReplaceWidget extends Widget {
 	private _onStateChanged(e: FindReplaceStateChangedEvent): void {
 		this._updateButtons();
 		this._updateMatchesCount();
+		this._diagnostics.updateSnapshot({ matchesCount: this._state.matchesCount });
 	}
 
 	private _updateButtons(): void {
-		this._findInput.setEnabled(this._isVisible);
-		this._replaceInput.setEnabled(this._isVisible && this._isReplaceVisible);
-		const findInputIsNonEmpty = (this._state.searchString.length > 0);
-		this._replaceBtn.setEnabled(this._isVisible && this._isReplaceVisible && findInputIsNonEmpty);
-		this._replaceAllBtn.setEnabled(this._isVisible && this._isReplaceVisible && findInputIsNonEmpty);
-
-		this._domNode.classList.toggle('replaceToggled', this._isReplaceVisible);
-		this._toggleReplaceBtn.setExpanded(this._isReplaceVisible);
+		updateFindReplaceControlState({
+			visible: this._isVisible,
+			replaceVisible: this._isReplaceVisible,
+			searchString: this._state.searchString,
+			findInput: this._findInput,
+			replaceInput: this._replaceInput,
+			replaceBtn: this._replaceBtn,
+			replaceAllBtn: this._replaceAllBtn,
+			toggleReplaceBtn: this._toggleReplaceBtn,
+			rootNode: this._domNode
+		});
 
 		this.foundMatch = this._state.matchesCount > 0;
 		this.updateButtons(this.foundMatch);
@@ -813,6 +813,8 @@ export abstract class SimpleFindReplaceWidget extends Widget {
 		}
 
 		this._isVisible = true;
+		this._diagnostics.updateSnapshot({ visible: true });
+		this._diagnostics.startSession();
 		this.updateButtons(this.foundMatch);
 
 		setTimeout(() => {
@@ -832,6 +834,8 @@ export abstract class SimpleFindReplaceWidget extends Widget {
 		}
 
 		this._isVisible = true;
+		this._diagnostics.updateSnapshot({ visible: true });
+		this._diagnostics.startSession();
 
 		setTimeout(() => {
 			this._domNode.classList.add('visible', 'visible-transition');
@@ -854,6 +858,8 @@ export abstract class SimpleFindReplaceWidget extends Widget {
 
 		this._isVisible = true;
 		this._isReplaceVisible = true;
+		this._diagnostics.updateSnapshot({ visible: true, replaceVisible: true });
+		this._diagnostics.startSession();
 		this._state.change({ isReplaceRevealed: this._isReplaceVisible }, false);
 		this._updateReplaceViewDisplay();
 
@@ -886,6 +892,8 @@ export abstract class SimpleFindReplaceWidget extends Widget {
 
 			this._domNode.classList.remove('visible-transition');
 			this._domNode.setAttribute('aria-hidden', 'true');
+			this._diagnostics.updateSnapshot({ visible: false });
+			this._diagnostics.endSession();
 			// Need to delay toggling visibility until after Transition, then visibility hidden - removes from tabIndex list
 			setTimeout(() => {
 				this._isVisible = false;
@@ -934,7 +942,7 @@ export abstract class SimpleFindReplaceWidget extends Widget {
 registerThemingParticipant((theme, collector) => {
 	collector.addRule(`
 	.notebook-editor {
-		--notebook-find-width: ${NOTEBOOK_FIND_WIDGET_INITIAL_WIDTH}px;
+		--notebook-find-width: ${FIND_REPLACE_WIDGET_INITIAL_WIDTH}px;
 		--notebook-find-horizontal-padding: ${NOTEBOOK_FIND_WIDGET_INITIAL_HORIZONTAL_PADDING}px;
 	}
 	`);
