@@ -9,11 +9,11 @@ import { alert as alertFn } from '../../../../../../base/browser/ui/aria/aria.js
 import { KeyCode, KeyMod } from '../../../../../../base/common/keyCodes.js';
 import { Lazy } from '../../../../../../base/common/lazy.js';
 import { Disposable } from '../../../../../../base/common/lifecycle.js';
-import * as strings from '../../../../../../base/common/strings.js';
 import { Range } from '../../../../../../editor/common/core/range.js';
 import { FindMatch } from '../../../../../../editor/common/model.js';
 import { MATCHES_LIMIT } from '../../../../../../editor/contrib/find/browser/findModel.js';
 import { FindReplaceWidgetDiagnostics } from '../../../../../../editor/contrib/find/browser/findReplaceWidgetDiagnostics.js';
+import { updateFindMatchesCount } from '../../../../../../editor/contrib/find/browser/findReplaceWidgetUtils.js';
 import { FindReplaceState } from '../../../../../../editor/contrib/find/browser/findState.js';
 import { NLS_MATCHES_LOCATION, NLS_NO_RESULTS } from '../../../../../../editor/contrib/find/browser/findWidget.js';
 import { FindWidgetSearchHistory } from '../../../../../../editor/contrib/find/browser/findWidgetSearchHistory.js';
@@ -200,6 +200,7 @@ class NotebookFindWidget extends SimpleFindReplaceWidget implements INotebookEdi
 	}
 
 	protected find(previous: boolean): void {
+		this._diagnostics.recordAction('find');
 		this._findModel.find({ previous });
 	}
 
@@ -219,6 +220,8 @@ class NotebookFindWidget extends SimpleFindReplaceWidget implements INotebookEdi
 		if (!this._findModel.findMatches.length) {
 			return;
 		}
+
+		this._diagnostics.recordAction('replaceOne');
 
 		this._findModel.ensureFindMatches();
 
@@ -250,6 +253,8 @@ class NotebookFindWidget extends SimpleFindReplaceWidget implements INotebookEdi
 		if (!this._notebookEditor.hasModel()) {
 			return;
 		}
+
+		this._diagnostics.recordAction('replaceAll');
 
 		this._progressBar.infinite().show(PROGRESS_BAR_DELAY);
 
@@ -392,29 +397,20 @@ class NotebookFindWidget extends SimpleFindReplaceWidget implements INotebookEdi
 			return;
 		}
 
-		this._matchesCount.style.minWidth = MAX_MATCHES_COUNT_WIDTH + 'px';
-		this._matchesCount.title = '';
+		const matchesPosition: string = this._findModel.currentMatch < 0 ? '?' : String((this._findModel.currentMatch + 1));
 
 		// remove previous content
-		this._matchesCount.firstChild?.remove();
-
-		let label: string;
-
-		if (this._state.matchesCount > 0) {
-			let matchesCount: string = String(this._state.matchesCount);
-			if (this._state.matchesCount >= MATCHES_LIMIT) {
-				matchesCount += '+';
-			}
-			const matchesPosition: string = this._findModel.currentMatch < 0 ? '?' : String((this._findModel.currentMatch + 1));
-			label = strings.format(NLS_MATCHES_LOCATION, matchesPosition, matchesCount);
-		} else {
-			label = NLS_NO_RESULTS;
-		}
-
-		this._matchesCount.appendChild(document.createTextNode(label));
+		const { label, minimumWidth } = updateFindMatchesCount(this._matchesCount, {
+			currentMinimumWidth: MAX_MATCHES_COUNT_WIDTH,
+			matchesCount: this._state.matchesCount,
+			matchesPosition,
+			matchesLimit: MATCHES_LIMIT,
+			matchesLocationLabel: NLS_MATCHES_LOCATION,
+			noResultsLabel: NLS_NO_RESULTS
+		});
 
 		alertFn(this._getAriaLabel(label, this._state.currentMatch, this._state.searchString));
-		MAX_MATCHES_COUNT_WIDTH = Math.max(MAX_MATCHES_COUNT_WIDTH, this._matchesCount.clientWidth);
+		MAX_MATCHES_COUNT_WIDTH = Math.max(MAX_MATCHES_COUNT_WIDTH, minimumWidth);
 	}
 
 	private _getAriaLabel(label: string, currentMatch: Range | null, searchString: string): string {
